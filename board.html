@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>board</title>
+	<style type="text/css">
+		.board {
+			position: relative;
+			width: 400px;
+			height: 400px;
+			box-shadow: 0 0 0 1px black;
+		}
+		.board ::selection {background: none;}
+		.board ::-moz-selection {background: none;}
+		.boardTable {
+			margin: 100px auto;
+			text-align: center;
+		}
+		.blackSquare, .whiteSquare {
+			position: absolute;
+			width: 50px;
+			height: 50px;
+			font-size: 50px;
+			font-weight: bold;
+			cursor: default;
+			line-height: 55px;
+			vertical-align: middle;
+		}
+		.blackSquare {background: url('img/board/black_square.png');}
+		.whiteSquare {background: url('img/board/white_square.png');}
+		.blackSquare:hover, .whiteSquare:hover {box-shadow: 0 0 0 2px green inset;}
+	</style>
+</head>
+<body>
+	<table class="boardTable">
+		<tr>
+			<td></td>
+			<td>A</td>
+			<td>B</td>
+			<td>C</td>
+			<td>D</td>
+			<td>E</td>
+			<td>F</td>
+			<td>G</td>
+			<td>H</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>8</td>
+			<td colspan="8" rowspan="8" id="boardCell"></td>
+			<td>8</td>
+		</tr>
+		<tr><td>7</td><td>7</td></tr>
+		<tr><td>6</td><td>6</td></tr>
+		<tr><td>5</td><td>5</td></tr>
+		<tr><td>4</td><td>4</td></tr>
+		<tr><td>3</td><td>3</td></tr>
+		<tr><td>2</td><td>2</td></tr>
+		<tr><td>1</td><td>1</td></tr>
+		<tr>
+			<td></td>
+			<td>A</td>
+			<td>B</td>
+			<td>C</td>
+			<td>D</td>
+			<td>E</td>
+			<td>F</td>
+			<td>G</td>
+			<td>H</td>
+			<td></td>
+		</tr>
+	</table>
+
+	<script type="text/javascript">
+	function Chess() {
+		this.FEN;
+		this.squares; //here will be 2-dim array with pointers to squares on board
+		this.position = []; //pieces types on squares
+		this.activeSide;
+		this.whiteCastleKingside;
+		this.whiteCastleQueenside;
+		this.blackCastleKingside;
+		this.blackCastleQueenside;
+		this.enPassantCapture;
+		this.halfmoveClock;
+		this.fullMove;
+		this.fromMove; // what piece move
+		this.toMove;   // where place that piece
+		this.gameOver;
+		this.containerId;
+	}
+
+	Chess.prototype.createBoard = function(id) {
+		this.containerId = id;
+		//create container
+		var board = document.createElement('div');
+		board.setAttribute('class', 'board');
+		var cell = document.getElementById(id);
+		cell.appendChild(board);
+		
+		//create squares
+		var verticals = [null, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+		var squares = []; //here we store pointers to our squares on board
+		var chess = this; //pointer to current object
+
+		for (var i = 8; i > 0; i--) {
+		squares[i] = [];
+
+			for (var j = 1; j < 9; j++) {
+				var square = document.createElement('div');
+				square.setAttribute('id', verticals[j] + i);
+				var square_class = ((i + j) % 2 == 0) ? 'blackSquare' : 'whiteSquare';
+				square.setAttribute('class', square_class);
+				square.style.top = (8 - i) * 50 + 'px';
+				square.style.left = (j - 1) * 50 + 'px';
+				square.addEventListener('click', function(event) {
+					chess.makeMove(event, chess);
+				});
+				board.appendChild(square);
+				squares[i][j] = square;  //squares[horizontal][vertical]
+			}
+
+		}
+
+		this.squares = squares;
+	};
+
+	Chess.prototype.validateFEN = function(fen) {
+		var fen_fields = fen.split(' ');
+		//check num of fields
+		if (fen_fields.length != 6)
+			return false;
+		//check active side
+		if (!/[wb]/.test(fen_fields[1]))
+			return false;
+		//check fullmove field
+		if (!isNumeric(fen_fields[5]) || fen_fields[5] < 1)
+			return false;
+		//check halfmove clock
+		if (!isNumeric(fen_fields[4]) || fen_fields[4] < 0)
+			return false;
+		//check en passant capture
+		if (fen_fields[3].length == 1) {
+			if (fen_fields[3] != '-')
+				return false;
+		} else if (fen_fields[3].length == 2) {
+			if (/[^a-h1-8]/.test(fen_fields[3]))
+				return false;
+		} else {
+			return false;
+		}
+		//check castle
+		if (fen_fields[2].length == 1) {
+			if (!/[-KQkq]/.test(fen_fields[2]))
+				return false;
+		} else if (2 <= fen_fields[2].length && fen_fields[2].length <= 4) {
+			if (/[^KQkq]/.test(fen_fields[2]))
+				return false;
+		} else {
+			return false;
+		}
+		//check horizontals
+		var horizontals = fen_fields[0].split('/');
+		if (horizontals.length != 8)
+			return false;
+			//check pieces
+		for (var i = 0; i < 8; i++) {
+			if (/[^rnbqkpRNBQKP1-8]/.test(horizontals[i]))
+				return false;
+		}
+			//check sum
+		for (var i = 0; i < 8; i++) {
+			var counter = 0;
+			for (var j = 0, n = horizontals[i].length; j < n; j++) {
+				if (isNumeric(horizontals[i][j]))
+					counter += Number(horizontals[i][j]);
+				else
+					counter++;
+			}
+			if (counter != 8)
+				return false;
+		}
+
+		return true;
+	};
+
+	Chess.prototype.parseFEN = function(fen) {
+		if (!this.validateFEN(fen))
+			return false;
+		this.FEN = fen;
+		fen= fen.split(' ');
+
+		this.fullMove = Number(fen[5]);
+		this.halfmoveClock = Number(fen[4]);
+		this.enPassantCapture = fen[3];
+		this.whiteCastleKingside = (/[K]/.test(fen[2])) ? true : false;
+		this.whiteCastleQueenside = (/[Q]/.test(fen[2])) ? true : false;
+		this.blackCastleKingside = (/[k]/.test(fen[2])) ? true : false;
+		this.blackCastleQueenside = (/[q]/.test(fen[2])) ? true : false;
+		this.activeSide = fen[1];
+
+		var horizontals = fen[0].split('/');
+
+		for (var i = 8; i > 0; i--) {
+			this.position[i] = [];
+			var count = 1;
+			for (var j = 0, n = horizontals[8 - i].length; j < n; j++) {
+				if (isNumeric(horizontals[8 - i][j])) {
+					var number = Number(horizontals[8 - i][j]);
+					while (number > 0) {
+						this.position[i][count] = null;
+						count++;
+						number--;
+					}
+				} else {
+					this.position[i][count] = horizontals[8 - i][j];
+					count++;
+				}
+			}
+		}
+	};
+
+	Chess.prototype.renderPieces = function() {
+		var pieces = {
+			r: '&#9820;', //black rook
+			n: '&#9822;', //black knight
+			b: '&#9821;', //black bishop
+			q: '&#9819;', //black queen
+			k: '&#9818;', //black king
+			p: '&#9823;', //black pawn
+			R: '&#9814;', //white rook
+			N: '&#9816;', //white knight
+			B: '&#9815;', //white bishop
+			Q: '&#9813;', //white queen
+			K: '&#9812;', //white king
+			P: '&#9817;'  //white pawn
+		};
+
+		for (var i = 8; i > 0; i--) {
+			for (var j = 1; j < 9; j++) {
+				this.squares[i][j].innerHTML = (pieces[this.position[i][j]]) ? 
+													pieces[this.position[i][j]] : null;
+			}
+		}
+	};
+
+	Chess.prototype.getMovingCoordinates = function() {
+		var move = {
+			moveFrom: {
+				h: Number(this.fromMove.id[1]),
+				v: this.fromMove.id.charCodeAt(0) - 'a'.charCodeAt(0) + 1
+			},
+			moveTo: {
+				h: Number(this.toMove.id[1]),
+				v: this.toMove.id.charCodeAt(0) - 'a'.charCodeAt(0) + 1
+			}
+		};
+		move.moveFrom.type = this.position[move.moveFrom.h][move.moveFrom.v];
+		move.moveTo.type = this.position[move.moveTo.h][move.moveTo.v];
+
+		return move;
+	};
+
+	Chess.prototype.makeMove = function(event, chess) {
+		if (chess.gameOver) {
+			alert(chess.gameOver);
+			return;
+		}
+
+		if (chess.fromMove) {
+
+			if (chess.fromMove == event.target) {
+				chess.fromMove = null;
+				event.target.style['box-shadow'] = 'none';
+			} else {
+				chess.toMove = event.target;
+				var move = chess.getMovingCoordinates();
+				
+
+				if (chess.validateMove(move)) {
+					
+					changeCastlingConditionByRook(chess, move);
+					//capture en passant figure
+					if (chess.enPassantCapture != '-' && /[pP]/.test(move.moveFrom.type)) {
+						var h = Number(chess.enPassantCapture[1]);
+						var v = chess.enPassantCapture.charCodeAt(0) - 'a'.charCodeAt(0) + 1;
+						
+						if (move.moveTo.h == h && move.moveTo.v == v) {
+							h += (h == 3) ? 1 : -1;
+							chess.position[h][v] = null;
+						}
+					}					
+					//changing piece position
+					chess.position[move.moveTo.h][move.moveTo.v] = chess.position[move.moveFrom.h][move.moveFrom.v];
+					chess.position[move.moveFrom.h][move.moveFrom.v] = null;
+
+						
+					//TODO generate FEN!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+					//chess.fen = chess.generateFEN();
+					makeCastling(chess, move);
+					changeCastlingConditionByKing(chess, move);
+					transformPawn(chess, move);
+					chess.renderPieces();
+					chess.fromMove.style['box-shadow'] = 'none';
+					chess.fromMove = null;
+					chess.toMove = null;
+					chess.activeSide = (chess.activeSide == 'w') ? 'b' : 'w';
+					chess.gameOver = chess.isGameOver();
+
+					
+					//add en passant field
+					this.enPassantCapture = '-';
+					if (/[p]/i.test(move.moveFrom.type)) {
+						var horizontalDiff = Math.abs(move.moveFrom.h - move.moveTo.h);
+
+						if (horizontalDiff == 2) {
+							var verticals = [null, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+							var enPassant = verticals[move.moveTo.v];
+							enPassant += (move.moveFrom.h == 2) ? '3' : '6';
+							this.enPassantCapture = enPassant;
+						}
+					} 
+
+				} else {
+					if (this.gameOver) {
+						alert(this.gameOver);
+					} else {
+						chess.fromMove.style['box-shadow'] = 'none';
+						chess.fromMove = null;
+						chess.toMove = null;
+						chess.position[move.moveFrom.h][move.moveFrom.v] = move.moveFrom.type;
+						chess.position[move.moveTo.h][move.moveTo.v] = move.moveTo.type;
+						alert('invalid move!');
+						//improving is needed!!!!
+					}
+					
+				}
+			}
+
+		} else {
+
+			if (event.target.innerHTML) {
+				var activePieces = (chess.activeSide == 'w') ? /[PRNBQK]/ : /[prnbqk]/;
+				var h = Number(event.target.id[1]);
+				var v = event.target.id.charCodeAt(0) - 'a'.charCodeAt(0) + 1;
+				
+				if (!activePieces.test(chess.position[h][v]))
+					return;
+
+				chess.fromMove = event.target;
+				event.target.style['box-shadow'] = '0 0 1px 1px #3399ff inset';
+			}
+
+		}
+		
+		function changeCastlingConditionByRook(chess, move) {
+			if (move.moveFrom.type == 'R') {
+				if (move.moveFrom.h != 1)
+					return;
+				if (move.moveFrom.v == 8)
+					chess.whiteCastleKingside = false;
+				if (move.moveFrom.v == 1)
+					chess.whiteCastleQueenside = false;
+			} else if (move.moveFrom.type == 'r') {
+				if (move.moveFrom.h != 8)
+					return;
+				if (move.moveFrom.v == 8)
+					chess.blackCastleKingside = false;
+				if (move.moveFrom.v == 1)
+					chess.blackCastleQueenside = false;
+			}
+		}
+
+		function changeCastlingConditionByKing(chess, move) {
+			if (move.moveFrom.type == 'K')
+				chess.whiteCastleKingside = chess.whiteCastleQueenside = false;
+			if (move.moveFrom.type == 'k')
+				chess.blackCastleKingside = chess. blackCastleQueenside = false;
+		}
+
+		function makeCastling(chess, move) {
+			if (move.moveFrom.type == 'K') {
+				if (move.moveFrom.h == 1 && move.moveFrom.v == 5 &&
+					move.moveTo.h == 1 && move.moveTo.v == 7 &&
+					chess.whiteCastleKingside) {
+					chess.position[1][6] = chess.position[1][8];
+					chess.position[1][8] = null;
+				}
+
+				if (move.moveFrom.h == 1 && move.moveFrom.v == 5 &&
+					move.moveTo.h == 1 && move.moveTo.v == 3 &&
+					chess.whiteCastleQueenside) {
+					chess.position[1][4] = chess.position[1][1];
+					chess.position[1][1] = null;
+				}
+			}
+
+			if (move.moveFrom.type == 'k') {
+				if (move.moveFrom.h == 8 && move.moveFrom.v == 5 &&
+					move.moveTo.h == 8 && move.moveTo.v == 7 &&
+					chess.blackCastleKingside) {
+					chess.position[8][6] = chess.position[8][8];
+					chess.position[8][8] = null;
+				}
+
+				if (move.moveFrom.h == 8 && move.moveFrom.v == 5 &&
+					move.moveTo.h == 8 && move.moveTo.v == 3 &&
+					chess.blackCastleQueenside) {
+					chess.position[8][4] = chess.position[8][1];
+					chess.position[8][1] = null;
+				}
+			}
+		}
+
+		function transformPawn(chess, move) {
+			if (move.moveFrom.type == 'P' && move.moveTo.h == 8) {
+				var piece;
+				do {
+					piece = +prompt('Choose queen: 1; choose rook: 2; choose bishop: 3; choose knight: 4.', 1);
+					var pieces = [null, 'Q', 'R', 'B', 'N'];
+					chess.position[move.moveTo.h][move.moveTo.v] = pieces[piece];
+				} while (!piece);
+			}
+
+			if (move.moveFrom.type == 'p' && move.moveTo.h == 1) {
+				var piece;
+				do {
+					piece = +prompt('Choose queen: 1; choose rook: 2; choose bishop: 3; choose knight: 4.', 1);
+					var pieces = [null, 'q', 'r', 'b', 'n'];
+					chess.position[move.moveTo.h][move.moveTo.v] = pieces[piece];
+				} while (!piece);
+			}
+		}
+		
+	};
+
+	Chess.prototype.isGameOver = function() {
+		return isCheckmate(this) || isDraw(this);
+
+		function isCheckmate(chess) {
+			var ourPieces = (chess.activeSide == 'w') ? /[PRNBQ]/ : /[prnbq]/;
+			var king = findKing(chess);
+			var move = {
+				moveFrom: {h: king.h, v: king.v, type: chess.position[king.h][king.v]},
+				moveTo: {h: null, v: null, type: null}
+			};
+
+			if (!inCheck(chess, king))
+				return false;
+			if (bruteForce(chess, move, king))
+				return false;
+
+			for (var i = 1; i <= 8; i++) {
+				for (var j = 1; j <= 8; j++) {
+					if (!ourPieces.test(chess.position[i][j]))
+						continue;
+
+					move.moveFrom.h = i;
+					move.moveFrom.v = j;
+					move.moveFrom.type = chess.position[i][j];
+
+					if (bruteForce(chess, move, king))
+						return false;
+				}
+			}
+
+			return (chess.activeSide == 'w') ? 'black win' : 'white win';
+			
+		}
+
+		function isDraw(chess) {
+			var pieces = '';
+			var draw = 'draw';
+
+			for (var i = 1; i <= 8; i++) {
+				for (var j = 1; j <= 8; j++) {
+					if (chess.position[i][j])
+						pieces += chess.position[i][j];
+				}
+			}
+
+			if (pieces.length == 2)
+				return draw;
+			if (pieces.length == 3 &&
+				(!/[^kn]/i.test(pieces) || !/[^kb]/i.test(pieces)))
+				return draw;
+
+			var ourPieces = (chess.activeSide == 'w') ? /[PRNBQ]/ : /[prnbq]/;
+			var king = findKing(chess);
+			var move = {
+				moveFrom: {h: king.h, v: king.v, type: chess.position[king.h][king.v]},
+				moveTo: {h: null, v: null, type: null}
+			};
+
+			if (inCheck(chess, king))
+				return false;
+
+			if (bruteForce(chess, move, king))
+				return false;
+
+
+			for (var i = 1; i <= 8; i++) {
+				for (var j = 1; j <= 8; j++) {
+					if (!ourPieces.test(chess.position[i][j]))
+						continue;
+
+					move.moveFrom.h = i;
+					move.moveFrom.v = j;
+					move.moveFrom.type = chess.position[i][j];
+
+					if (bruteForce(chess, move, king))
+						return false;
+				}
+			}
+
+			return draw;
+		}
+
+		/*
+		** Brute force every square on board to find whether 
+		** piece can be moved without being under check
+		*/
+		function bruteForce(chess, move, king) {
+			for (var i = 1; i <= 8; i++) {
+				for (var j = 1; j <= 8; j++) {
+					move.moveTo.h = i;
+					move.moveTo.v = j;
+					move.moveTo.type = chess.position[i][j];
+
+					if(!isAllowedMove(move, chess))
+						continue;
+					
+					var copy = cloneArray(chess.position);
+					var clone = {position: copy};
+					clone.position[move.moveTo.h][move.moveTo.v] = move.moveFrom.type;
+					
+					if (/[kK]/.test(move.moveFrom.type) && !inCheck(clone, move.moveTo))
+						return true;
+					
+					if (!inCheck(chess, king))
+						return true;
+
+					if (!inCheck(clone, king))
+						return true;
+
+				}
+			}
+
+			return false;
+
+			function cloneArray(arr) {
+				var clone;
+				if (Array.isArray(arr)) {
+					clone = arr.slice(0);
+					for (var i = 0, n = arr.length; i < n; i++) {
+						clone[i] = cloneArray(arr[i]);
+					}
+					return clone;
+				} else {
+					return arr;
+				}
+				
+			}
+		}
+	};
+
+	Chess.prototype.validateMove = function(move) {
+		var king = findKing(this);
+
+		if (isAllowedMove(move, this)) {
+			this.position[move.moveTo.h][move.moveTo.v] = move.moveFrom.type;
+			this.position[move.moveFrom.h][move.moveFrom.v] = null;
+
+			if (!inCheck(this, king) ||
+				/[kK]/.test(move.moveFrom.type) && !inCheck(this, move.moveTo)) {
+					this.position[move.moveTo.h][move.moveTo.v] = null;
+					this.position[move.moveFrom.h][move.moveFrom.v] = move.moveFrom.type;
+					return true;
+			} else {
+				this.position[move.moveTo.h][move.moveTo.v] = null;
+				this.position[move.moveFrom.h][move.moveFrom.v] = move.moveFrom.type;
+				return false;
+			}
+		}
+		
+		return false;
+	};
+
+
+	function isAllowedMove(move, chess) {
+		var piece = move.moveFrom.type;
+		var opponentPieces = (chess.activeSide == 'w') ? /[prnbq]/ : /[PRNBQ]/;
+
+		if (piece == 'p' || piece == 'P')
+			return pawnMoving(move, chess, opponentPieces);
+
+		if (piece == 'n' || piece == 'N')
+			return knightMoving(move, chess, opponentPieces);
+
+		if (piece == 'r' || piece == 'R')
+			return rookMoving(move, chess, opponentPieces);
+
+		if (piece == 'b' || piece == 'B')
+			return bishopMoving(move, chess, opponentPieces);
+
+		if (piece == 'q' || piece == 'Q')
+			return queenMoving(move, chess, opponentPieces);
+
+		if (piece == 'k' || piece == 'K')
+			return kingMoving(move, chess, opponentPieces);
+
+		return false;
+
+		function pawnMoving(move, chess, opponentPieces) {
+			var step = (chess.activeSide == "w") ? 1 : -1;
+			var horizontal = (chess.activeSide == "w") ? 2 : 7;
+			//check moving
+			if (move.moveFrom.v == move.moveTo.v) {
+				if (move.moveFrom.h + step == move.moveTo.h &&
+					!move.moveTo.type)
+					return true;
+				else if (move.moveFrom.h == horizontal &&
+						 move.moveFrom.h + 2 * step == move.moveTo.h &&
+						 !chess.position[move.moveFrom.h + 1 * step][move.moveFrom.v] &&
+						 !move.moveTo.type)
+					return true; 
+				else
+					return false;
+			}
+			//check capturing
+			if (Math.abs(move.moveFrom.v - move.moveTo.v) == 1 &&
+				move.moveFrom.h + step == move.moveTo.h) {
+				//simple capturing
+				if (move.moveTo.type && opponentPieces.test(move.moveTo.type)) 
+					return true;
+				//en passant capturing
+				else if (chess.enPassantCapture != '-' &&
+						move.moveTo.h == Number(chess.enPassantCapture[1]) &&
+						move.moveTo.v == chess.enPassantCapture.charCodeAt(0) - 'a'.charCodeAt(0) + 1) 
+					return true;
+				else
+					return false;
+			}
+
+			return false;				
+		}
+
+		function knightMoving(move, chess, opponentPieces) {
+			var horizontalDiff = Math.abs(move.moveFrom.h - move.moveTo.h);
+			var verticalDiff = Math.abs(move.moveFrom.v - move.moveTo.v);
+
+			if (horizontalDiff == 2 && verticalDiff == 1 ||
+				horizontalDiff == 1 && verticalDiff == 2) {
+
+				if (!move.moveTo.type || opponentPieces.test(move.moveTo.type))
+					return true;
+
+			}
+
+			return false;
+		}
+
+		function rookMoving(move, chess, opponentPieces) {
+			if (move.moveFrom.h == move.moveTo.h ||
+				move.moveFrom.v == move.moveTo.v) {
+
+				if (!move.moveTo.type || opponentPieces.test(move.moveTo.type)) {
+					var horizontalDiff = Math.abs(move.moveFrom.h - move.moveTo.h);
+					var verticalDiff = Math.abs(move.moveFrom.v - move.moveTo.v);
+
+					if (horizontalDiff == 1 || verticalDiff == 1)
+						return true;
+
+					if (horizontalDiff > 1) {
+						var start = (move.moveFrom.h < move.moveTo.h) ? move.moveFrom.h : move.moveTo.h;
+						var end = (move.moveFrom.h < move.moveTo.h) ? move.moveTo.h : move.moveFrom.h;
+
+						for (var i = start + 1; i < end; i++) {
+							if (chess.position[i][move.moveTo.v])
+								return false;
+						}
+
+						return true;
+					}
+					
+					if (verticalDiff > 1) {
+						var start = (move.moveFrom.v < move.moveTo.v) ? move.moveFrom.v : move.moveTo.v;
+						var end = (move.moveFrom.v < move.moveTo.v) ? move.moveTo.v : move.moveFrom.v;
+
+						for (var i = start + 1; i < end; i++) {
+							if (chess.position[move.moveTo.h][i])
+								return false;
+						}
+
+						return true;
+					}
+				}
+
+			}
+
+			return false;
+		}
+
+		function bishopMoving(move, chess, opponentPieces) {
+			var horizontalDiff = Math.abs(move.moveFrom.h - move.moveTo.h);
+			var verticalDiff = Math.abs(move.moveFrom.v - move.moveTo.v);
+
+			if (horizontalDiff == verticalDiff) {
+				if (!move.moveTo.type || opponentPieces.test(move.moveTo.type)) {
+
+					if (horizontalDiff == 1)
+						return true;
+
+					if (move.moveTo.h > move.moveFrom.h && move.moveTo.v > move.moveFrom.v) {
+						for (var h = move.moveFrom.h + 1, v = move.moveFrom.v + 1;
+							 h < move.moveTo.h && v < move.moveTo.v;
+							 h++, v++) {
+
+							if (chess.position[h][v])
+								return false;
+
+						}
+
+						return true;
+					}
+
+					if (move.moveTo.h > move.moveFrom.h && move.moveTo.v < move.moveFrom.v) {
+						for (var h = move.moveFrom.h + 1, v = move.moveFrom.v - 1;
+							h < move.moveTo.h && v > move.moveTo.v;
+							h++, v--) {
+
+							if (chess.position[h][v])
+								return false;
+
+						}
+
+						return true;
+					}
+
+					if (move.moveTo.h < move.moveFrom.h && move.moveTo.v < move.moveFrom.v) {
+						for (var h = move.moveFrom.h - 1, v = move.moveFrom.v - 1;
+							h > move.moveTo.h && v > move.moveTo.v;
+							h--, v--) {
+
+							if (chess.position[h][v])
+								return false;
+
+						}
+
+						return true;
+					}
+
+					if (move.moveTo.h < move.moveFrom.h && move.moveTo.v > move.moveFrom.v) {
+						for (var h = move.moveFrom.h - 1, v = move.moveFrom.v + 1;
+							h > move.moveTo.h && v < move.moveTo.v;
+							h--, v++) {
+
+							if (chess.position[h][v])
+								return false;
+
+						}
+
+						return true;
+					}
+				}
+			}
+
+			return false;
+		}
+
+		function queenMoving(move, chess, opponentPieces) {
+			return rookMoving(move, chess, opponentPieces) || 
+				   bishopMoving(move, chess, opponentPieces);
+		}
+
+		function kingMoving(move, chess, opponentPieces) {
+			var horizontalDiff = Math.abs(move.moveFrom.h - move.moveTo.h);
+			var verticalDiff = Math.abs(move.moveFrom.v - move.moveTo.v);
+			//castling
+			if (chess.whiteCastleKingside && move.moveFrom.type == 'K') {
+				if (move.moveTo.h == 1 && move.moveTo.v == 7 &&
+					chess.position[1][6] == null && chess.position[1][7] == null)
+						return true;
+			}
+
+			if (chess.whiteCastleQueenside && move.moveFrom.type == 'K') {
+				if (move.moveTo.h == 1 && move.moveTo.v == 3 &&
+					chess.position[1][2] == null && 
+					chess.position[1][3] == null && 
+					chess.position[1][4] == null)
+						return true;
+			}
+
+			if (chess.blackCastleKingside && move.moveFrom.type == 'k') {
+				if (move.moveTo.h == 8 && move.moveTo.v == 7 &&
+					chess.position[8][6] == null && chess.position[8][7] == null)
+						return true;
+			}
+
+			if (chess.blackCastleQueenside && move.moveFrom.type == 'k') {
+				if (move.moveTo.h == 8 && move.moveTo.v == 3 &&
+					chess.position[8][2] == null && 
+					chess.position[8][3] == null && 
+					chess.position[8][4] == null)
+						return true;
+			}
+			//simple moving
+			if (horizontalDiff <= 1 && verticalDiff <= 1) {
+				if (!move.moveTo.type || opponentPieces.test(move.moveTo.type)) {
+
+					var kostilKyda = move.moveTo.type;
+					var kostilOtkuda = move.moveFrom.type;
+					chess.position[move.moveTo.h][move.moveTo.v] = kostilOtkuda;
+					chess.position[move.moveFrom.h][move.moveFrom.v] = null;
+
+					if (inCheck(chess, move.moveTo)) {
+						chess.position[move.moveTo.h][move.moveTo.v] = kostilKyda;
+						chess.position[move.moveFrom.h][move.moveFrom.v] = kostilOtkuda;
+						return false;
+					} else {
+
+						chess.position[move.moveTo.h][move.moveTo.v] = kostilKyda;
+						chess.position[move.moveFrom.h][move.moveFrom.v] = kostilOtkuda;
+						
+						var opponentKing = (chess.activeSide == 'w') ? 'k' : 'K';
+						
+						for (var i = 1; i <= 8; i++) {
+							for (var j = 1; j <= 8; j++) {
+								if (chess.position[i][j] == opponentKing) {
+									var horizontalDiff = Math.abs(move.moveTo.h - i);
+									var verticalDiff = Math.abs(move.moveTo.v - j);
+									if (horizontalDiff <= 1 && verticalDiff <= 1)
+										return false;
+									else
+										return true;
+								}
+							}
+						}
+
+					
+					}
+
+					
+				}
+			}
+
+			return false;
+		}
+
+	}
+	/*
+	** Return true if king under check
+	*/
+	function inCheck(chess, king) {
+		//check, that pawn attack king
+		if (checkPawn(chess, king)) {
+			return true;
+		}
+		//check, that knight attack king
+		if (checkKnight(chess, king)) {
+			return true;
+		}
+		//check, that rook attack king
+		if (checkRook(chess, king, 'R', 'r')) {
+			return true;
+		}
+		//check, that bishop attack king
+		if (checkBishop(chess, king, 'B', 'b')) {
+			return true;
+		}
+		//check, that queen attack king
+		if (checkQueen(chess, king, 'Q', 'q')) {
+			return true;
+		}
+		
+		return false;
+
+		function checkPawn(chess, king) {
+			var opponentPawn = (chess.activeSide == 'w') ? 'p' : 'P';
+
+			if (chess.activeSide == 'w') {
+				if (king.h < 7) {
+					if (king.v == 1) {
+						if (chess.position[king.h + 1][king.v + 1] == opponentPawn)
+							return true;
+					} else if (1 < king.v && king.v < 8) {
+						if (chess.position[king.h + 1][king.v + 1] == opponentPawn ||
+							chess.position[king.h + 1][king.v - 1] == opponentPawn)
+							return true;
+					} else if (king.v == 8) {
+						if (chess.position[king.h + 1][king.v - 1] == opponentPawn)
+							return true;
+					}
+				}
+			} else if (chess.activeSide == 'b') {
+				if (king.h > 2) {
+					if (king.v == 1) {
+						if (chess.position[king.h - 1][king.v + 1] == opponentPawn)
+							return true;
+					} else if (1 < king.v && king.v < 8) {
+						if (chess.position[king.h - 1][king.v + 1] == opponentPawn ||
+							chess.position[king.h - 1][king.v - 1] == opponentPawn)
+							return true;
+					} else if (king.v == 8) {
+						if (chess.position[king.h - 1][king.v - 1] == opponentPawn)
+							return true;
+					}
+				}
+			}
+
+			return false;
+		}
+
+		function checkKnight(chess, king) {
+			var opponentKnight = (chess.activeSide == 'w') ? 'n' : 'N';
+			var knights = [];
+			var valid = [
+							{h: 2, v: 1},
+							{h: 1, v: 2},
+							{h: -1, v: 2},
+							{h: -2, v: 1},
+							{h: -2, v: -1},
+							{h: -1, v: -2},
+							{h: 1, v: -2},
+							{h: 2, v: -1}
+						];
+			//adding posible positions of knights
+			for (var i = 0, n = valid.length; i < n; i++) {
+				if ((1 <= king.h + valid[i].h && king.h + valid[i].h <= 8) &&
+					(1 <= king.v + valid[i].v && king.h + valid[i].h <= 8))
+					knights.push(valid[i]);
+			}
+			//check that knight attack king
+			for (var i = 0, n = knights.length; i < n; i++) {
+				var h = king.h + knights[i].h;
+				var v = king.v + knights[i].v;
+
+				if (chess.position[h][v] == opponentKnight)
+					return true;
+			}
+
+			return false;
+		}
+
+		function checkRook(chess, king, whitePiece, blackPiece) {
+			var opponentRook = (chess.activeSide == 'w') ? blackPiece : whitePiece; 
+			
+			for (var i = 1; i <= 8; i++) {
+				for (var j = 1; j <= 8; j++) {
+					if(chess.position[i][j] == opponentRook) {
+						
+						if (king.h == i) {
+							
+							if (king.v + 1 == j || 
+								king.v - 1 == j)
+								return true;
+
+							var start = (king.v < j) ? king.v : j;
+							var end = (king.v < j) ? j : king.v;
+							var check = true;
+
+							for (var k = start + 1; k < end; k++) {
+								if (chess.position[i][k] != null && 
+									chess.position[i][k] != opponentRook) {
+									check = false;
+									break;
+								}	
+							}
+
+							if (check) return true;
+						}
+
+						if (king.v == j) {
+							
+							if (king.v + 1 == j || 
+								king.v - 1 == j)
+								return true;
+
+							var start = (king.h < i) ? king.h : i;
+							var end = (king.h < i) ? i : king.h;
+							var check = true;
+
+							for (var k = start + 1; k < end; k++) {
+								if (chess.position[k][j] != null &&
+									chess.position[k][j] != opponentRook) {
+									check = false;
+									break;
+								}
+							}
+
+							if (check) return true;
+						}
+
+					}
+				}
+			}
+
+			return false;
+		}
+
+		function checkBishop(chess, king, whitePiece, blackPiece) {
+			var opponentBishop = (chess.activeSide == 'w') ? blackPiece : whitePiece;
+
+			for (var i = 1; i <= 8; i++) {
+				for (var j = 1; j <= 8; j++) {
+					if (chess.position[i][j] == opponentBishop) {
+						var horizontalDifference = Math.abs(king.h - i), 
+							verticalDifference = Math.abs(king.v - j);
+
+						if (horizontalDifference == verticalDifference) {
+
+							if (king.h > i && king.v > j) {
+								for (var h = i, v = j; h < king.h && v < king.v; h++, v++) {
+									if (chess.position[h][v] != null && 
+										chess.position[h][v] != opponentBishop)
+										return false;
+								}
+
+								return true;
+							}
+
+							if (king.h > i && king.v < j) {
+								for (var h = i, v = j; h < king.h && v > king.v; h++, v--) {
+									if (chess.position[h][v] != null&& 
+										chess.position[h][v] != opponentBishop)
+										return false;
+								}
+
+								return true;
+							}
+
+							if (king.h < i && king.v < j) {
+								for (var h = i, v = j; h > king.h && v > king.v; h--, v--) {
+									if (chess.position[h][v] != null&& 
+										chess.position[h][v] != opponentBishop)
+										return false;
+								}
+
+								return true;
+							}
+
+							if (king.h < i && king.v > j) {
+								for (var h = i, v = j; h > king.h && v < king.v; h--, v++) {
+									if (chess.position[h][v] != null&& 
+										chess.position[h][v] != opponentBishop)
+										return false;
+								}
+
+								return true;
+							}
+
+						}
+
+					}
+				}
+			}
+		}
+
+		function checkQueen(chess, king, whitePiece, blackPiece) {
+			return checkRook(chess, king, whitePiece, blackPiece) ||
+					checkBishop(chess, king, whitePiece, blackPiece);
+		}
+
+	}
+
+	function findKing(chess) {
+		var king = (chess.activeSide == 'w') ? 'K' : 'k';
+		for (var i = 1; i < 9; i++) {
+			for (var j = 1; j < 9; j++) {
+				if (chess.position[i][j] == king)
+					return {h: i, v: j};
+			}
+		}
+	}
+
+	function isNumeric(n) {
+		return !isNaN(parseFloat(n)) && isFinite(n);
+		//parseFloat cast true, false, null, ' ' to string and return for it Nan && true if !infinity/-infinity/NaN
+	}
+
+	var chess = new Chess();
+	chess.createBoard('boardCell');
+	chess.parseFEN('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+	chess.renderPieces();
+
+	/*
+	var FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+	BUGS: !!!!!!!!!
+	var FEN = '8/6b7/5k2/8/P7/KPP5/3r4/8 w KQkq - 0 1';
+	*/
+	</script>
+</body>
+</html>
