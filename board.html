@@ -13,7 +13,7 @@
 		.board ::selection {background: none;}
 		.board ::-moz-selection {background: none;}
 		.boardTable {
-			margin: 100px auto;
+			margin: 20px auto;
 			text-align: center;
 		}
 		.blackSquare, .whiteSquare {
@@ -29,9 +29,28 @@
 		.blackSquare {background: url('img/board/black_square.png');}
 		.whiteSquare {background: url('img/board/white_square.png');}
 		.blackSquare:hover, .whiteSquare:hover {box-shadow: 0 0 0 2px green inset;}
+		.indicators{
+			margin: 100px auto 0;
+			width: 404px;
+		}
+		.turnIndicator {
+			display: inline-block;
+			width: 200px;
+			height: 50px;
+			box-shadow: 0 0 0 1px #000000 inset;
+			text-align: center;
+			line-height: 50px;
+			vertical-align: middle;
+			font-size: 20px;
+		}
+		.turnIndicator span {font-size: 35px;}
 	</style>
 </head>
 <body>
+	<div class="indicators">
+		<div id='whiteTurn' class='turnIndicator'><span>&#9812;</span> white turn</div>
+		<div id='blackTurn' class='turnIndicator'><span>&#9818;</span> black turn</div>
+	</div>
 	<table class="boardTable">
 		<tr>
 			<td></td>
@@ -261,6 +280,19 @@
 		return move;
 	};
 
+	Chess.prototype.updateTurnIndicator = function(wId, bId, bc) {
+		var white = document.getElementById(wId);
+		var black = document.getElementById(bId);
+
+		if (this.activeSide == 'w') {
+			white.style.background = bc;
+			black.style.background = 'none';
+		} else {
+			white.style.background = 'none';
+			black.style.background = bc;
+		}
+	}
+
 	Chess.prototype.makeMove = function(event, chess) {
 		if (chess.gameOver) {
 			alert(chess.gameOver);
@@ -306,6 +338,7 @@
 					chess.toMove = null;
 					chess.activeSide = (chess.activeSide == 'w') ? 'b' : 'w';
 					chess.gameOver = chess.isGameOver();
+					chess.updateTurnIndicator('whiteTurn', 'blackTurn', "url('img/board/white_square.png')");
 
 					
 					//add en passant field
@@ -1082,6 +1115,7 @@
 	chess.createBoard('boardCell');
 	chess.parseFEN('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
 	chess.renderPieces();
+	chess.updateTurnIndicator('whiteTurn', 'blackTurn', "url('img/board/white_square.png')");
 
 	/*
 	var FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
